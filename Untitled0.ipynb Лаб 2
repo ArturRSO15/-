@@ -1,0 +1,162 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": [],
+      "authorship_tag": "ABX9TyOOihJmIOikuAoC+Br8PHSq",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/ArturRSO15/-/blob/main/Untitled0.ipynb%20%D0%9B%D0%B0%D0%B1%202\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 1,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "RTqHNTZd3eA8",
+        "outputId": "8c009370-394e-49da-9c4d-dc0187a70d23"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Получено 3 новостей\n",
+            "\n",
+            "1. Иностранные наемники начали расторгать контракты с ВСУ после одного решения командования17:17\n",
+            "Ссылка: https://lenta.ru/news/2025/12/11/inostrannye-naemniki-nachali-rastorgat-kontrakty-s-vsu-posle-odnogo-resheniya-komandovaniya/\n",
+            "Текст: Иностранные наемники, сражающиеся в рядахВооруженных силУкраины(ВСУ), начали расторгать контракты после переводов в штур...\n",
+            "\n",
+            "2. Россиян предостерегли от одного действия с суставами17:38\n",
+            "Ссылка: https://lenta.ru/news/2025/12/11/rossiyan-predosteregli-ot-odnogo-deystviya-s-sustavami/\n",
+            "Текст: Попытки самостоятельно вправить сустав после травмы могут привести к серьезным осложнениям, предостерегла неврологЕкатер...\n",
+            "\n",
+            "3. Стало известно о состоянии пострадавшей при обрушении многоэтажки в российском городе17:37\n",
+            "Ссылка: https://lenta.ru/news/2025/12/11/stalo-izvestno-o-sostoyanii-postradavshih-pri-obrushenii-mnogoetazhki-v-rossiyskom-gorode/\n",
+            "Текст: Одна из пострадавших при обрушении многоэтажки вгороде Петров ВалВолгоградской области находится в реанимации, передаетТ...\n",
+            "\n",
+            "Сохранено в lenta_news.csv\n"
+          ]
+        }
+      ],
+      "source": [
+        "import requests\n",
+        "from bs4 import BeautifulSoup\n",
+        "import pandas as pd\n",
+        "import time\n",
+        "\n",
+        "def fetch_news(num_news=5):\n",
+        "    base_url = \"https://lenta.ru\"\n",
+        "    headers = {\n",
+        "        \"User-Agent\": \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\"\n",
+        "    }\n",
+        "\n",
+        "    response = requests.get(base_url, headers=headers, timeout=10)\n",
+        "    if response.status_code != 200:\n",
+        "        return pd.DataFrame()\n",
+        "\n",
+        "    soup = BeautifulSoup(response.text, 'html.parser')\n",
+        "    news_links = extract_news_links(soup, num_news)\n",
+        "\n",
+        "    news_data = []\n",
+        "    for i, news in enumerate(news_links[:num_news]):\n",
+        "        try:\n",
+        "            content = fetch_article_content(news['link'], headers)\n",
+        "            news_data.append({\n",
+        "                'title': news['title'],\n",
+        "                'link': news['link'],\n",
+        "                'content': content\n",
+        "            })\n",
+        "            time.sleep(1)\n",
+        "        except:\n",
+        "            pass\n",
+        "\n",
+        "    return pd.DataFrame(news_data)\n",
+        "\n",
+        "def extract_news_links(soup, num_news):\n",
+        "    selectors = [\n",
+        "        'a.card-mini__title',\n",
+        "        'a.card-full-news__title',\n",
+        "        'a[href*=\"/news/\"]'\n",
+        "    ]\n",
+        "\n",
+        "    links = []\n",
+        "    for selector in selectors:\n",
+        "        for link in soup.select(selector):\n",
+        "            href = link.get('href')\n",
+        "            title = link.get_text(strip=True)\n",
+        "\n",
+        "            if href and title and len(title) > 10:\n",
+        "                if href.startswith('/'):\n",
+        "                    href = 'https://lenta.ru' + href\n",
+        "\n",
+        "                if href not in [x['link'] for x in links]:\n",
+        "                    links.append({'title': title, 'link': href})\n",
+        "\n",
+        "            if len(links) >= num_news * 2:\n",
+        "                break\n",
+        "\n",
+        "    return links\n",
+        "\n",
+        "def fetch_article_content(article_url, headers):\n",
+        "    try:\n",
+        "        response = requests.get(article_url, headers=headers, timeout=10)\n",
+        "        soup = BeautifulSoup(response.text, 'html.parser')\n",
+        "\n",
+        "        content_parts = []\n",
+        "        text_selectors = [\n",
+        "            '.topic-body__content',\n",
+        "            '.topic-body__title',\n",
+        "            'p'\n",
+        "        ]\n",
+        "\n",
+        "        for selector in text_selectors:\n",
+        "            for element in soup.select(selector):\n",
+        "                text = element.get_text(strip=True)\n",
+        "                if text and len(text) > 20:\n",
+        "                    content_parts.append(text)\n",
+        "            if content_parts:\n",
+        "                break\n",
+        "\n",
+        "        return ' '.join(content_parts) if content_parts else \"Текст не найден\"\n",
+        "    except:\n",
+        "        return \"Ошибка загрузки\"\n",
+        "\n",
+        "if __name__ == \"__main__\":\n",
+        "    news_dataframe = fetch_news(3)\n",
+        "\n",
+        "    if news_dataframe.empty:\n",
+        "        print(\"Не удалось получить новости\")\n",
+        "    else:\n",
+        "        print(f\"Получено {len(news_dataframe)} новостей\")\n",
+        "        for i, row in news_dataframe.iterrows():\n",
+        "            print(f\"\\n{i + 1}. {row['title']}\")\n",
+        "            print(f\"Ссылка: {row['link']}\")\n",
+        "            print(f\"Текст: {row['content'][:120]}...\")\n",
+        "\n",
+        "        news_dataframe.to_csv('lenta_news.csv', index=False, encoding='utf-8')\n",
+        "        print(\"\\nСохранено в lenta_news.csv\")\n"
+      ]
+    }
+  ]
+}
