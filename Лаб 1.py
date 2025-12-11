@@ -1,73 +1,70 @@
-import requests
-import pandas as pd             # для работы с табличными данными
-from datetime import date, timedelta  # для формирования дат
-from sklearn.model_selection import train_test_split  # разбиение на обуч./тест
-from sklearn.linear_model import LinearRegression     # простая модель
-from sklearn.metrics import mean_squared_error        # метрика RMSE
-import numpy as np              # числовые операции
+import requests #Используется для отправки НТТР-запрос к интернет API. Нам нужно обращаться к открытому погодному API Open-Meteo,
+import pandas as pd #Импортируем pandas, чтобы удобно работать с табличными данными как с DataFrame.Именно в DataFrame мы будем хранить наш погодный датасет.
+from datetime import date, timedelta  #Импортируем функции для работы с датами
+from sklearn.model_selection import train_test_split  # Функция для разделения данных на обучающую и тестовую выборки.
+from sklearn.linear_model import LinearRegression     # Подключаем модель линейной регрессии, которую будем обучать.
+from sklearn.metrics import mean_squared_error        # Метрика ошибки MSE — мы используем её для вычисления RMSE (корень из средней квадратичной ошибки).
+import numpy as np# числовые операции
 
-latitude = 56.9496   # пример: Рига (Lat)
-longitude = 24.1052  # пример: Рига (Lon)
-end_date = date.today() - timedelta(days=3)  # берем данные до 3 дней назад (защита от задержек)
-start_date = end_date - timedelta(days=365*2)  # последние 2 года данных
-timezone = "Europe/Riga"  # удобно для меток времени
+latitude = 56.9496    
+longitude = 24.1052  # координаты участка земли чью историю погоды мы хоти получить 
+end_date = date.today() - timedelta(days=3)  # берем данные до 3 дней назад (данные могут быть не загружены)
+start_date = end_date - timedelta(days=365*2)  #берем данные последних двух лет 
+timezone = "Europe/Moscow"#Указываем тайм зону 
 
-base_url = "https://archive-api.open-meteo.com/v1/archive"
-params = {
-    "latitude": latitude,
-    "longitude": longitude,
-    "start_date": start_date.isoformat(),
-    "end_date": end_date.isoformat(),
-    # Запрашиваем дневные переменные: max temp, min temp, суммарные осадки
-    "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",
-    "timezone": timezone
+base_url = "https://archive-api.open-meteo.com/v1/archive" #Адрес API, которое предоставляет исторические погодные данные.
+params = { # Мы формируем словарь параметров запроса 
+    "latitude": latitude,# координаты 
+    "longitude": longitude,# координаты 
+    "start_date": start_date.isoformat(),# период запроса 
+    "end_date": end_date.isoformat(),# период запроса 
+    "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",# запрашиваем дневные параметры макс,мин,сумарные осадки 
+    "timezone": timezone # чтобы даты были в человека понятном формате 
 }
 
-# Выполняем запрос и проверяем ответ
-resp = requests.get(base_url, params=params)
-resp.raise_for_status()  # бросит ошибку, если статус != 200
-data = resp.json()
+resp = requests.get(base_url, params=params) # выполняем запрос (GET-запрос к API)
+resp.raise_for_status()  # выводит ошибку если программа не равна 200
+data = resp.json() #Преобразуем ответ сервера из формата JSON в обычный Python-словарь.
 
-daily = data.get("daily", {})
-df = pd.DataFrame({
-    "date": pd.to_datetime(daily.get("time")),
-    "tmax": daily.get("temperature_2m_max"),
-    "tmin": daily.get("temperature_2m_min"),
-    "precip": daily.get("precipitation_sum")
+daily = data.get("daily", {}) #Получаем раздел "daily" из ответа API. Если его нет — получим пустой словарь.
+df = pd.DataFrame({ # создаем таблицу с колонками 
+    "date": pd.to_datetime(daily.get("time")),# время 
+    "tmax": daily.get("temperature_2m_max"),# макс температура
+    "tmin": daily.get("temperature_2m_min"),# мин температура 
+    "precip": daily.get("precipitation_sum")#  осадки 
 })
 
 # Сортируем по дате и индексируем
 df = df.sort_values("date").reset_index(drop=True)
 
-df["tmax_next_day"] = df["tmax"].shift(-1)  # сдвиг вверх: значение следующего дня
-# Удаляем последнюю строку, где tmax_next_day == NaN
-df = df.dropna(subset=["tmax_next_day"]).reset_index(drop=True)
+df["tmax_next_day"] = df["tmax"].shift(-1)  #создаем новую колонку значение максимальной колонки 
+df = df.dropna(subset=["tmax_next_day"]).reset_index(drop=True)#Удаляем последнюю строку, где не было данных следующего дня.
 
-df["tmax_lag1"] = df["tmax"].shift(1)  # вчерашняя tmax
-df["tmax_lag1"].fillna(df["tmax"].mean(), inplace=True)  # заполним NaN средним (крайний простейший подход)
-df["t_range"] = df["tmax"] - df["tmin"]
-df["day_of_year"] = df["date"].dt.dayofyear
+df["tmax_lag1"] = df["tmax"].shift(1)  # максимальная погода вчера 
+df["tmax_lag1"].fillna(df["tmax"].mean(), inplace=True)  # Для первой строки лаг пустой — заменяем средним значением температуры.
+df["t_range"] = df["tmax"] - df["tmin"]# суточный диапозон температуры 
+df["day_of_year"] = df["date"].dt.dayofyear# получаем номер дня в году 
 
-feature_cols = ["tmax", "tmin", "precip", "tmax_lag1", "t_range", "day_of_year"]
-X = df[feature_cols].astype(float)
-y = df["tmax_next_day"].astype(float)
+feature_cols = ["tmax", "tmin", "precip", "tmax_lag1", "t_range", "day_of_year"]#Список признаков, которые будут входить в модель.
+X = df[feature_cols].astype(float)#Матрица признаков X — таблица из 6 колонок.
+y = df["tmax_next_day"].astype(float)#Целевая переменная — температура следующего дня.
 
 
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, shuffle=False  # shuffle=False, т.к. временной ряд (предпочтительно)
+    X, y, test_size=0.2, shuffle=False  # 80% → обучение 
 )
 
-model = LinearRegression()
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+model = LinearRegression()#создаем объект модели 
+model.fit(X_train, y_train)#обучаем модель на исторических данных 
+y_pred = model.predict(X_test)#Получаем предсказания температуры на тестовом наборе.
+rmse = np.sqrt(mean_squared_error(y_test, y_pred)) #Вычисляем корень из среднеквадратичной ошибки (RMSE) — популярная метрика в задачах регрессии.
 
-print(f"Данные с {start_date.isoformat()} по {end_date.isoformat()} для локации ({latitude},{longitude})")
-print(f"Размер датасета: {len(df)} строк")
-print(f"RMSE на тесте: {rmse:.3f} °C")
+print(f"Данные с {start_date.isoformat()} по {end_date.isoformat()} для локации ({latitude},{longitude})")# Сообщаем пользователю, за какой период загружены данные.
+print(f"Размер датасета: {len(df)} строк")#Печатаем, сколько строк данных получили из API.
+print(f"RMSE на тесте: {rmse:.3f} °C")#Печатаем ошибку модели в градусах Цельсия.
 
-result = X_test.copy()
-result["actual_tmax_next_day"] = y_test.values
-result["pred_tmax_next_day"] = y_pred
-print("\nПримеры (последние 5 строк теста):")
-print(result.tail(5))
+result = X_test.copy()#Копируем тестовые признаки.
+result["actual_tmax_next_day"] = y_test.values#добовляем в таблицу значения температуры 
+result["pred_tmax_next_day"] = y_pred# предсказанные моделью 
+print("\nПримеры (последние 5 строк теста):")#
+print(result.tail(5))#
